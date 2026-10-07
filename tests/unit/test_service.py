@@ -312,13 +312,31 @@ class TestJobManager:
         # Start a long-running job
         job_id = await manager.execute_command("sleep 5")
 
-        # Shutdown should kill running jobs
+        # Shutdown should kill running jobs and purge terminal records
         await manager.shutdown()
 
-        # Job should be killed
-        status = await manager.get_job_status(job_id)
-        assert status == JobStatus.KILLED
+        # Killed job is purged from _jobs (SlotPool release + removeJob)
+        assert job_id not in manager._jobs
 
+    @pytest.mark.asyncio
+    async def test_reclaim_slots_frees_capacity(self):
+        """Completed jobs must free slots before admit (SlotPool release)."""
+        config = BackgroundJobConfig(max_concurrent_jobs=1, job_retention_seconds=0)
+        manager = JobManager(config)
+
+        job_id = await manager.execute_command("echo 'done quickly'")
+        # Wait for completion
+        for _ in range(50):
+            status = await manager.get_job_status(job_id)
+            if status != JobStatus.RUNNING:
+                break
+            await asyncio.sleep(0.05)
+
+        # Without reclaim, a stale COMPLETED record must not block a new job
+        job_id2 = await manager.execute_command("echo 'second after reclaim'")
+        assert job_id2 in manager._jobs
+        # Original terminal record purged on admit reclaim
+        assert job_id not in manager._jobs
 
 class TestJobManagerEdgeCases:
     """Test edge cases and error conditions."""

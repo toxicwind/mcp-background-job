@@ -15,10 +15,11 @@ class TestBackgroundJobConfig:
         """Test default configuration values."""
         config = BackgroundJobConfig()
 
-        assert config.max_concurrent_jobs == 10
+        assert config.max_concurrent_jobs == 32
         assert config.max_output_size_bytes == 10 * 1024 * 1024  # 10MB
         assert config.default_job_timeout is None
-        assert config.cleanup_interval_seconds == 300
+        assert config.cleanup_interval_seconds == 60
+        assert config.job_retention_seconds == 0
         assert config.allowed_command_patterns == []
         assert config.working_directory == "."
 
@@ -30,6 +31,7 @@ class TestBackgroundJobConfig:
                 max_output_size_bytes=5 * 1024 * 1024,
                 default_job_timeout=1800,
                 cleanup_interval_seconds=600,
+                job_retention_seconds=30,
                 allowed_command_patterns=["echo*", "ls*"],
                 working_directory=temp_dir,
             )
@@ -38,6 +40,7 @@ class TestBackgroundJobConfig:
             assert config.max_output_size_bytes == 5 * 1024 * 1024
             assert config.default_job_timeout == 1800
             assert config.cleanup_interval_seconds == 600
+            assert config.job_retention_seconds == 30
             assert config.allowed_command_patterns == ["echo*", "ls*"]
             assert config.working_directory == os.path.abspath(temp_dir)
 
@@ -97,7 +100,7 @@ class TestEnvironmentLoading:
         with patch.dict(os.environ, {}, clear=True):
             config = BackgroundJobConfig.from_environment()
 
-            assert config.max_concurrent_jobs == 10
+            assert config.max_concurrent_jobs == 32
             assert config.max_output_size_bytes == 10 * 1024 * 1024
             assert config.default_job_timeout is None
 
@@ -108,6 +111,7 @@ class TestEnvironmentLoading:
             "MCP_BG_MAX_OUTPUT_SIZE": "20MB",
             "MCP_BG_JOB_TIMEOUT": "1800",
             "MCP_BG_CLEANUP_INTERVAL": "600",
+            "MCP_BG_JOB_RETENTION": "30",
             "MCP_BG_ALLOWED_COMMANDS": "echo*,ls*",
             "MCP_BG_WORKING_DIR": ".",
         }
@@ -119,6 +123,7 @@ class TestEnvironmentLoading:
             assert config.max_output_size_bytes == 20 * 1024 * 1024
             assert config.default_job_timeout == 1800
             assert config.cleanup_interval_seconds == 600
+            assert config.job_retention_seconds == 30
             assert config.allowed_command_patterns == ["echo*", "ls*"]
 
     def test_from_environment_output_size_bytes(self):
@@ -132,11 +137,11 @@ class TestEnvironmentLoading:
         with patch.dict(os.environ, {}, clear=True):
             config = load_config()
             assert isinstance(config, BackgroundJobConfig)
-            assert config.max_concurrent_jobs == 10
+            assert config.max_concurrent_jobs == 32
 
     def test_load_config_invalid_env(self):
         """Test load_config with invalid environment variables."""
         with patch.dict(os.environ, {"MCP_BG_MAX_JOBS": "invalid"}, clear=True):
             config = load_config()
             # Should fall back to defaults
-            assert config.max_concurrent_jobs == 10
+            assert config.max_concurrent_jobs == 32

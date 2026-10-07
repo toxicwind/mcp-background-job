@@ -185,14 +185,14 @@ class TestServerIntegration:
         job_ids = [job.job_id for job in jobs]
         assert job_id in job_ids
 
-        # Cleanup completed jobs
-        cleanup_count = job_manager.cleanup_completed_jobs()
-        assert cleanup_count >= 0  # Should clean up at least one job
+        # Cleanup completed jobs — purges terminal records (SlotPool release + removeJob)
+        cleanup_count = job_manager.cleanup_completed_jobs(force=True)
+        assert cleanup_count >= 1
 
-        # Job record should still exist (cleanup only removes process wrappers)
+        # Job record should be gone so the slot is free for new admits
         jobs_after = await job_manager.list_jobs()
         job_ids_after = [job.job_id for job in jobs_after]
-        assert job_id in job_ids_after
+        assert job_id not in job_ids_after
 
 
 class TestServerErrorScenarios:
