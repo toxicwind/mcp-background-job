@@ -9,10 +9,18 @@ from pydantic import BaseModel, Field, field_validator
 class BackgroundJobConfig(BaseModel):
     """Configuration for the background job server.
 
-    Defaults tuned for agent-fleet floods (pattern-forge: SlotPool + removeJob).
-    Env: MCP_BG_MAX_JOBS, MCP_BG_MAX_OUTPUT_SIZE, MCP_BG_JOB_TIMEOUT,
-    MCP_BG_CLEANUP_INTERVAL, MCP_BG_JOB_RETENTION, MCP_BG_ALLOWED_COMMANDS,
-    MCP_BG_WORKING_DIR.
+    Defaults tuned for agent-fleet floods (pattern-forge: SlotPool acquire/release
+    + corral removeJob). Running slots are the scarce resource; terminal job
+    records are GC'd so completed work does not starve new admits.
+
+    Env:
+    - MCP_BG_MAX_JOBS: max concurrent RUNNING jobs (default 32)
+    - MCP_BG_MAX_OUTPUT_SIZE: max output buffer (supports MB suffix)
+    - MCP_BG_JOB_TIMEOUT: kill RUNNING jobs older than this many seconds
+    - MCP_BG_CLEANUP_INTERVAL: periodic GC interval seconds (default 60)
+    - MCP_BG_JOB_RETENTION: seconds to keep terminal records before purge (0=immediate)
+    - MCP_BG_ALLOWED_COMMANDS: comma-separated allowed command patterns
+    - MCP_BG_WORKING_DIR: working directory for job execution
     """
 
     max_concurrent_jobs: int = Field(
@@ -25,7 +33,7 @@ class BackgroundJobConfig(BaseModel):
         le=100 * 1024 * 1024,
     )
     default_job_timeout: Optional[int] = Field(
-        default=1800,
+        default=None,
         description="Default job timeout in seconds (kill RUNNING past this)",
         ge=1,
     )
@@ -36,8 +44,8 @@ class BackgroundJobConfig(BaseModel):
         le=3600,
     )
     job_retention_seconds: int = Field(
-        default=120,
-        description="Seconds to keep COMPLETED/FAILED/KILLED records before purge",
+        default=0,
+        description="Seconds to keep COMPLETED/FAILED/KILLED records before purge (0=purge on cleanup)",
         ge=0,
         le=86400,
     )
@@ -52,6 +60,7 @@ class BackgroundJobConfig(BaseModel):
     @field_validator("allowed_command_patterns", mode="before")
     @classmethod
     def split_command_patterns(cls, v):
+        """Split comma-separated command patterns from environment variables."""
         if isinstance(v, str):
             return [pattern.strip() for pattern in v.split(",") if pattern.strip()]
         return v
@@ -59,6 +68,7 @@ class BackgroundJobConfig(BaseModel):
     @field_validator("working_directory")
     @classmethod
     def validate_working_directory(cls, v):
+        """Ensure working directory exists and is accessible."""
         if not os.path.exists(v):
             raise ValueError(f"Working directory does not exist: {v}")
         if not os.path.isdir(v):
@@ -69,6 +79,7 @@ class BackgroundJobConfig(BaseModel):
 
     @classmethod
     def from_environment(cls) -> "BackgroundJobConfig":
+        """Load configuration from environment variables."""
         config_data = {}
 
         if max_jobs := os.getenv("MCP_BG_MAX_JOBS"):
@@ -101,6 +112,7 @@ class BackgroundJobConfig(BaseModel):
 
 
 def load_config() -> BackgroundJobConfig:
+    """Load configuration from environment variables with fallback to defaults."""
     try:
         return BackgroundJobConfig.from_environment()
     except Exception as e:
